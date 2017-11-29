@@ -1,0 +1,102 @@
+version: '3'
+
+#each container is a "service"
+services:
+  # the slb-haproxy container
+  slb-haproxy:
+    # image to pull from docker hub
+    image: tomammon/tomammon.net:haproxy-slb
+    # if the host reboots, bring this container back up on boot
+    restart: always
+    # make the NAME in docker ps output exactly what you want
+    # if you don't do this, compose will create a name for you
+    container_name: slb-haproxy
+    # connect port 80 on the host server (80:) to port 80 on the container (:80). Do the same for 1936
+    ports:
+      - 80:80
+      - 1936:1936
+    volumes:
+      # make /opt/tan/slb-haproxyconfig/haproxy.cfg available inside the container as /usr/local/etc/haproxy/haproxy.cfg
+      - /opt/tan/slb-haproxyconfig/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg
+    networks:
+      # connect this container to the default network (named {project name}_default by compose)
+      # {project name} is the directory name that docker-compose.yml is located in
+      default:
+      # connect this container to the {project name}_backend network (see networks: section below)
+      backend:
+        ipv4_address: 192.168.0.2
+
+  websrv-a:
+    image: alastairhm/alpine-lighttpd-php
+    restart: always
+    container_name: websrv-a
+    volumes:
+      - /opt/tan/appcode/websrv:/var/www
+    networks:
+      backend:
+        ipv4_address: 192.168.0.10
+
+  websrv-b:
+    image: alastairhm/alpine-lighttpd-php
+    restart: always
+    container_name: websrv-b
+    volumes:
+      - /opt/tan/appcode/websrv:/var/www
+    networks:
+      backend:
+        ipv4_address: 192.168.0.11
+
+  appsrv-a:
+    image: tomammon/tomammon.net:appserver
+    restart: always
+    container_name: appsrv-a
+    volumes:
+      - /opt/tan/appcode/appsrv:/var/www/html
+    networks:
+      backend:
+        ipv4_address: 192.168.0.100
+
+  appsrv-b:
+    image: tomammon/tomammon.net:appserver
+    restart: always
+    container_name: appsrv-b
+    volumes:
+      - /opt/tan/appcode/appsrv:/var/www/html
+    networks:
+      backend:
+        ipv4_address: 192.168.0.101
+
+  database:
+    image: mariadb:10.0.33
+    restart: always
+    container_name: tandb_slave
+    environment:
+      # https://hub.docker.com/_/mariadb/
+      # this container expects a mysql root password to be passed in on first boot of the container
+      # so that it can create the default databases, etc. This password exists in an environment
+      # variable on the host created with "export TANDB_PASSWD=insert_password_here"
+      MYSQL_ROOT_PASSWORD: ${TANDB_PASSWD}
+    volumes:
+      # since the container is ephemeral, we need to store the data in a permanent place on the host
+      - /opt/tan/dbdata:/var/lib/mysql
+      # we want to add some configuration parameters to the my.cnf file, so we'll put a file in
+      # /opt/tan/dbconfig on the host and the contents of that file will be added to the default
+      # my.cnf in the container
+      - /opt/tan/dbconfig:/etc/mysql/conf.d
+    networks:
+      # our database needs to be be able to reach its replication master so we'll connect it to the default network
+      default:
+      # our database needs to be reachable by the app servers so we'll also put it on the backend network
+      backend:
+        ipv4_address: 192.168.0.200
+
+
+networks:
+  backend:
+    driver: bridge
+    # if you don't specify the ipam: section, docker will simply select the next available subnet. 
+    # we configure it here to keep it deterministic
+    ipam:
+      driver: default
+      config:
+        - subnet: 192.168.0.0/24
