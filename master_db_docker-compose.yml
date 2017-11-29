@@ -3,6 +3,7 @@ version: '3'
 services:
   db:
     image: mariadb:10.0.33
+    restart: always
     container_name: tandb01
     ports:
       - 3307:3306
